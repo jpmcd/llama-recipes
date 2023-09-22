@@ -1,0 +1,2 @@
+Provide a response to the following: {input}
+Response:

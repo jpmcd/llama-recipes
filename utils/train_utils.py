@@ -160,12 +160,12 @@ def train(model, train_dataloader,eval_dataloader, tokenizer, optimizer, lr_sche
                         print(f"PEFT modules are saved in {train_config.output_dir} directory")
                         
                 else:
-                    if not train_config.use_peft and fsdp_config.checkpoint_type == StateDictType.FULL_STATE_DICT:
+                    if fsdp_config is not None and not train_config.use_peft and fsdp_config.checkpoint_type == StateDictType.FULL_STATE_DICT:
                         
                         model_checkpointing.save_model_checkpoint(
                             model, optimizer, rank, train_config, epoch=epoch
                         )
-                    elif not train_config.use_peft and fsdp_config.checkpoint_type == StateDictType.SHARDED_STATE_DICT:
+                    elif fsdp_config is not None and not train_config.use_peft and fsdp_config.checkpoint_type == StateDictType.SHARDED_STATE_DICT:
                         print(" Saving the FSDP model checkpoints using SHARDED_STATE_DICT")
                         print("=====================================================")
                         
@@ -197,9 +197,9 @@ def train(model, train_dataloader,eval_dataloader, tokenizer, optimizer, lr_sche
         
         if train_config.enable_fsdp:
             if rank==0:
-                print(f"Epoch {epoch+1}: train_perplexity={train_perplexity:.4f}, train_epoch_loss={train_epoch_loss:.4f}, epcoh time {epoch_end_time}s")
+                print(f"Epoch {epoch+1}: train_perplexity={train_perplexity:.4f}, train_epoch_loss={train_epoch_loss:.4f}, epoch time {epoch_end_time}s")
         else:
-            print(f"Epoch {epoch+1}: train_perplexity={train_perplexity:.4f}, train_epoch_loss={train_epoch_loss:.4f}, epcoh time {epoch_end_time}s")
+            print(f"Epoch {epoch+1}: train_perplexity={train_perplexity:.4f}, train_epoch_loss={train_epoch_loss:.4f}, epoch time {epoch_end_time}s")
     avg_epoch_time = sum(epoch_times)/ len(epoch_times) 
     avg_checkpoint_time = sum(checkpoint_times)/ len(checkpoint_times)   
     avg_train_prep = sum(train_prep)/len(train_prep)
