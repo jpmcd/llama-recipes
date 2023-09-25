@@ -10,9 +10,9 @@ cd ${HOME}/repos/llama-recipes
 source env/activate.sh
 
 MODEL_PATH="${HOME}/languagemodels/models/Llama-2-7b-hf-causal"
+FORM="${HOME}/repos/llama-recipes/llsc/form.txt"
 DATA_PATH="${HOME}/repos/llama-recipes/llsc/inputs.json"
 OUTPUT="${HOME}/repos/llama-recipes/llsc/output.txt"
-FORM="${HOME}/repos/llama-recipes/llsc/form.txt"
 
 python generate.py \
     --model_path ${MODEL_PATH} \
