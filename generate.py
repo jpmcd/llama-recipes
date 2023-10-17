@@ -34,8 +34,8 @@ from utils.train_utils import (
 )
 from data import SquadCausalDataset, SquadGenerationDataset, CustomGenerationDataset
 
-
-DEFAULT_MODEL = "/home/gridsan/JO30252/languagemodels/models/Llama-2-7b-hf-causal"
+USER = os.getenv("USER")
+DEFAULT_MODEL = f"/home/gridsan/{USER}/languagemodels/models/Llama-2-7b-hf-causal"
 
 
 def main(args, **kwargs):
@@ -82,12 +82,12 @@ def main(args, **kwargs):
     if not train_config.quantization and not train_config.enable_fsdp:
         model.to("cuda")
 
-    # tokenizer = LlamaTokenizer.from_pretrained("/home/gridsan/JO30252/languagemodels/models/Llama-2-7b-hf-causal")
-    tokenizer = LlamaTokenizer.from_pretrained("/home/gridsan/JO30252/languagemodels/models/Llama-2-7b-hf-causal", model_max_length=512, padding_side="left")
+    # tokenizer = LlamaTokenizer.from_pretrained(f"/home/gridsan/{USER}/languagemodels/models/Llama-2-7b-hf-causal")
+    tokenizer = LlamaTokenizer.from_pretrained(f"/home/gridsan/{USER}/languagemodels/models/Llama-2-7b-hf-causal", model_max_length=512, padding_side="left")
     # tokenizer.add_special_tokens({"pad_token": "<PAD>",})  # DOING THIS CAUSED A CUDA INDEX ERROR
     tokenizer.pad_token = "<PAD>"
     
-    # squad = datasets.load_from_disk("/home/gridsan/JO30252/languagemodels/datasets/squad")
+    # squad = datasets.load_from_disk(f"/home/gridsan/{USER}/languagemodels/datasets/squad")
     # dataset_val = SquadCausalDataset(squad["validation"].select(range(64)), tokenizer, add_answer=False)
     # dataset_val = SquadGenerationDataset(squad["validation"].select(range(64)), tokenizer)
     
