@@ -3,7 +3,7 @@ import os
 import time
 from tqdm import tqdm
 import argparse
-# import fire
+import fire
 import torch
 import torch.distributed as dist
 from peft import get_peft_model, prepare_model_for_int8_training
@@ -38,12 +38,9 @@ USER = os.getenv("USER")
 DEFAULT_MODEL = f"/home/gridsan/{USER}/languagemodels/models/Llama-2-7b-hf-causal"
 
 
-def main(args, **kwargs):
+def main(**kwargs):
     # Update the configuration for the training and sharding process
-    kwargs["model_name"] = args.model_path
-    kwargs["quantization"] = args.quantization
-    kwargs["val_batch_size"] = args.batch_size_validation
-    kwargs["num_workers_dataloader"] = args.num_workers_dataloader
+    kwargs["val_batch_size"] = kwargs["val_batch_size"] if "val_batch_size" in kwargs else kwargs.get("batch_size_validation", 16)
     update_config((train_config, fsdp_config), **kwargs)
     
     # Set the seeds for reproducibility
@@ -91,11 +88,11 @@ def main(args, **kwargs):
     # dataset_val = SquadCausalDataset(squad["validation"].select(range(64)), tokenizer, add_answer=False)
     # dataset_val = SquadGenerationDataset(squad["validation"].select(range(64)), tokenizer)
     
-    with open(args.form, "r") as f:
+    with open(kwargs["form"], "r") as f:
         form = f.read()
-    with open(args.data_path, "r") as f:
+    with open(kwargs["data_path"], "r") as f:
         dataset = json.load(f)
-    dataset_gen = CustomGenerationDataset(dataset, form, tokenizer, max_length=args.max_length)
+    dataset_gen = CustomGenerationDataset(dataset, form, tokenizer, max_length=kwargs["max_length"])
     
     dataloader = torch.utils.data.DataLoader(
         dataset_gen,
@@ -108,7 +105,7 @@ def main(args, **kwargs):
     )
 
     start = time.perf_counter()
-    kwargs = {}
+    run_args = {}
     outputs = []
     with torch.no_grad():
         for step, batch in enumerate(tqdm(dataloader, colour="blue", desc="Generation")):
@@ -125,28 +122,34 @@ def main(args, **kwargs):
                 top_k=50,
                 repetition_penalty=1.0,
                 length_penalty=1,
-                **kwargs
+                **run_args
             )
             outputs.extend(output)
-    e2e_inference_time = (time.perf_counter()-start)*1000
+    e2e_inference_time = (time.perf_counter() - start)*1000
     print(f"the inference time is {e2e_inference_time} ms")
-    generations = tokenizer.batch_decode(outputs, skip_special_tokens=args.skip_special_tokens)
-    with open(args.output, "w") as f:
+    generations = tokenizer.batch_decode(outputs, skip_special_tokens=kwargs["skip_special_tokens"])
+    if "output" in kwargs:
+        with open(kwargs["output"], "w") as f:
+            for g in generations:
+                f.write(g)
+                f.write("\n\n###################################\n\n")
+    else:
         for g in generations:
-            f.write(g)
-            f.write("\n\n###################################\n\n")
-        
+            print(g)
+            print("\n\n###################################\n\n")
+            
+            
 if __name__ == "__main__":
-    # fire.Fire(main)
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model_path", type=str, default=DEFAULT_MODEL)
-    parser.add_argument("--form", type=str)
-    parser.add_argument("--data_path", type=str)
-    parser.add_argument("--output", type=str)
-    parser.add_argument("--quantization", action="store_true")
-    parser.add_argument("--batch_size_validation", type=int, default=16)
-    parser.add_argument("--max_length", type=int, default=128)
-    parser.add_argument("--num_workers_dataloader", type=int, default=10)
-    parser.add_argument("--skip_special_tokens", action="store_true")
-    args = parser.parse_args()
-    main(args)
+    fire.Fire(main)
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument("--model_path", type=str, default=DEFAULT_MODEL)
+    # parser.add_argument("--form", type=str)
+    # parser.add_argument("--data_path", type=str)
+    # parser.add_argument("--output", type=str)
+    # parser.add_argument("--quantization", action="store_true")
+    # parser.add_argument("--batch_size_validation", type=int, default=16)
+    # parser.add_argument("--max_length", type=int, default=128)
+    # parser.add_argument("--num_workers_dataloader", type=int, default=10)
+    # parser.add_argument("--skip_special_tokens", action="store_true")
+    # args = parser.parse_args()
+    # main(args)

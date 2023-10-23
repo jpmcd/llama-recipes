@@ -11,4 +11,11 @@ source env/activate.sh
 
 OUTPUT_DIR="${HOME}/repos/llama-recipes/output"
 
-python finetune.py --output_dir=${OUTPUT_DIR}
+python finetune.py --output_dir=${OUTPUT_DIR} \
+    --run_validation \
+    --model_name "/home/gridsan/JO30252/languagemodels/models/Llama-2-7b-hf-causal" \
+    --quantization \
+    --batch_size_training 16 \
+    --val_batch_size 16 \
+    --num_workers_dataloader 10 \
+    --lr 1e-5

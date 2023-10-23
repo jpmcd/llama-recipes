@@ -51,18 +51,16 @@ DEFAULT_MODEL = "/home/gridsan/JO30252/languagemodels/models/Llama-2-7b-hf-causa
 
 
 def main(**kwargs):
-    kwargs["run_validation"] = True
-    kwargs["model_name"] = "/home/gridsan/JO30252/languagemodels/models/Llama-2-7b-hf-causal"
-    kwargs["quantization"] = True
-    kwargs["batch_size_training"] = 16
-    kwargs["val_batch_size"] = 16
-    kwargs["num_workers_dataloader"] = 10
-    kwargs["lr"] = 1e-5
+    # kwargs["run_validation"] = True
+    # kwargs["model_name"] = "/home/gridsan/JO30252/languagemodels/models/Llama-2-7b-hf-causal"
+    # kwargs["quantization"] = True
     update_config((train_config, fsdp_config), **kwargs)
     
     # Set the seeds for reproducibility
     torch.cuda.manual_seed(train_config.seed)
     torch.manual_seed(train_config.seed)
+    
+    assert os.path.isdir(train_config.output_dir)
     
     if train_config.enable_fsdp:
         setup()
@@ -85,9 +83,15 @@ def main(**kwargs):
     print_model_size(model, train_config, rank if train_config.enable_fsdp else 0)
     if train_config.quantization:
             model = prepare_model_for_int8_training(model)
-    if not train_config.quantization and not train_config.enable_fsdp:
+    if train_config.use_peft:
+        peft_config = generate_peft_config(train_config, kwargs)
+        model = get_peft_model(model, peft_config)
+        model.print_trainable_parameters()
+    if train_config.enable_fsdp:
+        raise 
+    elif not train_config.quantization:
         model.to("cuda")
-        
+    
     tokenizer = LlamaTokenizer.from_pretrained("/home/gridsan/JO30252/languagemodels/models/Llama-2-7b-hf-causal")  # , model_max_length=512)
     tokenizer.pad_token = "<PAD>"
     squad = datasets.load_from_disk("/home/gridsan/JO30252/languagemodels/datasets/squad")
