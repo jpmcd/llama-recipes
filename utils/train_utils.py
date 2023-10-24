@@ -115,10 +115,10 @@ def train(model, train_dataloader,eval_dataloader, tokenizer, optimizer, lr_sche
         # Reducing total_loss across all devices if there's more than one CUDA device
         if torch.cuda.device_count() > 1 and train_config.enable_fsdp:
             dist.all_reduce(total_loss, op=dist.ReduceOp.SUM)
-        train_epoch_loss = total_loss / len(train_dataloader)
+        train_epoch_loss = total_loss / len(train_dataloader) if len(train_dataloader) else float("nan")
         if train_config.enable_fsdp:
             train_epoch_loss = train_epoch_loss/world_size
-        train_perplexity = torch.exp(train_epoch_loss)
+        train_perplexity = torch.exp(torch.tensor(train_epoch_loss))
         
         train_prep.append(train_perplexity)
         train_loss.append(train_epoch_loss)
@@ -141,6 +141,7 @@ def train(model, train_dataloader,eval_dataloader, tokenizer, optimizer, lr_sche
         lr_scheduler.step()
           
         if train_config.run_validation:
+            eval_ppl, eval_epoch_loss = evaluation(model, train_config, eval_dataloader, local_rank, tokenizer)
             checkpoint_start_time = time.perf_counter()
             # if train_config.save_model and eval_epoch_loss < best_val_loss:
             if train_config.save_model:
@@ -185,7 +186,6 @@ def train(model, train_dataloader,eval_dataloader, tokenizer, optimizer, lr_sche
                     dist.barrier()
             checkpoint_end_time = time.perf_counter() - checkpoint_start_time
             checkpoint_times.append(checkpoint_end_time)
-            eval_ppl, eval_epoch_loss = evaluation(model, train_config, eval_dataloader, local_rank, tokenizer)
             if eval_epoch_loss < best_val_loss:
                 best_val_loss = eval_epoch_loss
                 if train_config.enable_fsdp:
@@ -223,7 +223,7 @@ def train(model, train_dataloader,eval_dataloader, tokenizer, optimizer, lr_sche
         
     return results
 
-def evaluation(model,train_config, eval_dataloader, local_rank, tokenizer, return_preds=False):
+def evaluation(model, train_config, eval_dataloader, local_rank, tokenizer, return_preds=False):
     """
     Evaluates the model on the given dataloader
     
