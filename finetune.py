@@ -47,20 +47,23 @@ from data import PROMPT_DICT, SuperCloudDemoDataset, SuperCloudThreadsDataset
 from data import SquadCausalDataset
 
 
-DEFAULT_MODEL = "/home/gridsan/JO30252/languagemodels/models/Llama-2-7b-hf-causal"
+HOME = os.environ["HOME"]
 
 
 def main(**kwargs):
     # kwargs["run_validation"] = True
-    # kwargs["model_name"] = "/home/gridsan/JO30252/languagemodels/models/Llama-2-7b-hf-causal"
+    # kwargs["model_name"] = f"{HOME}/languagemodels/models/Llama-2-7b-hf-causal"
     # kwargs["quantization"] = True
+    
+    assert os.path.isdir(kwargs["output_dir"])
     update_config((train_config, fsdp_config), **kwargs)
     
     # Set the seeds for reproducibility
     torch.cuda.manual_seed(train_config.seed)
     torch.manual_seed(train_config.seed)
     
-    assert os.path.isdir(train_config.output_dir)
+    max_training_data = kwargs.get("max_training_data", None)
+    max_validation_data = kwargs.get("max_validation_data", None)
     
     if train_config.enable_fsdp:
         setup()
@@ -92,12 +95,17 @@ def main(**kwargs):
     elif not train_config.quantization:
         model.to("cuda")
     
-    tokenizer = LlamaTokenizer.from_pretrained("/home/gridsan/JO30252/languagemodels/models/Llama-2-7b-hf-causal")  # , model_max_length=512)
+    tokenizer = LlamaTokenizer.from_pretrained(f"{HOME}/languagemodels/models/Llama-2-7b-hf-causal")  # , model_max_length=512)
     tokenizer.pad_token = "<PAD>"
-    squad = datasets.load_from_disk("/home/gridsan/JO30252/languagemodels/datasets/squad")
-    dataset_train = SquadCausalDataset(squad["train"].select(range(128)), tokenizer)
-    dataset_val = SquadCausalDataset(squad["validation"].select(range(64)), tokenizer)
     
+    # Set dataset and sampling
+    squad = datasets.load_from_disk(f"{HOME}/languagemodels/datasets/squad")
+    max_training_data = kwargs.get("max_training_data", len(squad["train"])
+    max_validation_data = kwargs.get("max_validation_data", len(squad["validation"])
+    # if max_training_data is not None:
+    dataset_train = SquadCausalDataset(squad["train"].select(range(max_training_data)), tokenizer)
+    # if max_validation_data is not None:
+    dataset_val = SquadCausalDataset(squad["validation"].select(range(max_validation_data)), tokenizer)
     train_sampler = None
     val_sampler = None
     train_dataloader = torch.utils.data.DataLoader(
@@ -119,6 +127,7 @@ def main(**kwargs):
             drop_last=True,
             collate_fn=default_data_collator,
         )
+    # Set optimizer, scheduler
     optimizer = optim.AdamW(
         model.parameters(),
         lr=train_config.lr,
@@ -126,22 +135,33 @@ def main(**kwargs):
     )
     scheduler = StepLR(optimizer, step_size=1, gamma=train_config.gamma)
 
-    results = train(
-        model,
-        train_dataloader,
-        # eval_dataloader,
-        train_dataloader,
-        tokenizer,
-        optimizer,
-        scheduler,
-        train_config.gradient_accumulation_steps,
-        train_config,
-        fsdp_config if train_config.enable_fsdp else None,
-        local_rank if train_config.enable_fsdp else None,
-        rank if train_config.enable_fsdp else None,
-    )
-    if not train_config.enable_fsdp or rank==0:
-        [print(f'Key: {k}, Value: {v}') for k, v in results.items()]
+    if max_training_data > 0:
+        results = train(
+            model,
+            train_dataloader,
+            eval_dataloader,
+            tokenizer,
+            optimizer,
+            scheduler,
+            train_config.gradient_accumulation_steps,
+            train_config,
+            fsdp_config if train_config.enable_fsdp else None,
+            local_rank if train_config.enable_fsdp else None,
+            rank if train_config.enable_fsdp else None,
+        )
+        if not train_config.enable_fsdp or rank==0:
+            [print(f'Key: {k}, Value: {v}') for k, v in results.items()]
+    if True:
+        print("Running evaluation...")
+        evaluation(
+            model,
+            train_config,
+            eval_dataloader,
+            local_rank if train_config.enable_fsdp else None,
+            tokenizer,
+        )
+        print("Finished evaluation...")
+    
     
 if __name__ == "__main__":
     fire.Fire(main)
