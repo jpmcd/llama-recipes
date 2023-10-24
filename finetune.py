@@ -55,15 +55,11 @@ def main(**kwargs):
     # kwargs["model_name"] = f"{HOME}/languagemodels/models/Llama-2-7b-hf-causal"
     # kwargs["quantization"] = True
     
-    assert os.path.isdir(kwargs["output_dir"])
     update_config((train_config, fsdp_config), **kwargs)
     
     # Set the seeds for reproducibility
     torch.cuda.manual_seed(train_config.seed)
     torch.manual_seed(train_config.seed)
-    
-    max_training_data = kwargs.get("max_training_data", None)
-    max_validation_data = kwargs.get("max_validation_data", None)
     
     if train_config.enable_fsdp:
         setup()
@@ -100,8 +96,8 @@ def main(**kwargs):
     
     # Set dataset and sampling
     squad = datasets.load_from_disk(f"{HOME}/languagemodels/datasets/squad")
-    max_training_data = kwargs.get("max_training_data", len(squad["train"])
-    max_validation_data = kwargs.get("max_validation_data", len(squad["validation"])
+    max_training_data = kwargs.get("max_training_data", len(squad["train"]))
+    max_validation_data = kwargs.get("max_validation_data", len(squad["validation"]))
     # if max_training_data is not None:
     dataset_train = SquadCausalDataset(squad["train"].select(range(max_training_data)), tokenizer)
     # if max_validation_data is not None:
@@ -114,7 +110,7 @@ def main(**kwargs):
         num_workers=train_config.num_workers_dataloader,
         pin_memory=True,
         sampler=train_sampler if train_sampler else None,
-        drop_last=True,
+        drop_last=not kwargs.get("keep_last"),
         collate_fn=default_data_collator,
     )
     if train_config.run_validation:
@@ -124,7 +120,7 @@ def main(**kwargs):
             num_workers=train_config.num_workers_dataloader,
             pin_memory=True,
             sampler=val_sampler if val_sampler else None,
-            drop_last=True,
+            drop_last=not kwargs.get("keep_last"),
             collate_fn=default_data_collator,
         )
     # Set optimizer, scheduler

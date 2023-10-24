@@ -240,6 +240,7 @@ def evaluation(model, train_config, eval_dataloader, local_rank, tokenizer, retu
     model.eval()
     eval_preds = []
     eval_loss = 0.0  # Initialize evaluation loss
+    eval_start_time = time.perf_counter()
     with MemoryTrace() as memtrace:
         for step, batch in enumerate(tqdm(eval_dataloader,colour="green", desc="evaluating Epoch")):
             for key in batch.keys():
@@ -259,7 +260,8 @@ def evaluation(model, train_config, eval_dataloader, local_rank, tokenizer, retu
             #     tokenizer.batch_decode(preds.detach().cpu().numpy(), skip_special_tokens=True)
             # )
             eval_preds.extend(preds.detach().cpu().numpy())
-    
+    eval_end_time = time.perf_counter() - eval_start_time
+
     # If there's more than one CUDA device, reduce evaluation loss across all devices
     if torch.cuda.device_count() > 1 and train_config.enable_fsdp:
         dist.all_reduce(eval_loss, op=dist.ReduceOp.SUM)
@@ -273,9 +275,9 @@ def evaluation(model, train_config, eval_dataloader, local_rank, tokenizer, retu
     # Print evaluation metrics
     if train_config.enable_fsdp:
         if local_rank==0:
-            print(f" {eval_ppl=} {eval_epoch_loss=}")
+            print(f"{eval_ppl=} {eval_epoch_loss=} {eval_end_time=}")
     else:
-        print(f" {eval_ppl=} {eval_epoch_loss=}")
+        print(f"{eval_ppl=} {eval_epoch_loss=} {eval_end_time=}")
         
     if return_preds:
         return eval_ppl, eval_epoch_loss, eval_preds
