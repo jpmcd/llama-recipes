@@ -9,12 +9,22 @@
 cd ${HOME}/repos/llama-recipes
 source env/activate.sh
 
-OUTPUT_DIR="${HOME}/repos/llama-recipes/output"
+START_TIME=$(date +"%Y%m%d_%H%M%S")
+
+OUTPUT_DIR="${HOME}/repos/llama-recipes/output/${SLURM_JOBID}_${START_TIME}"
+MODEL_PATH="${HOME}/languagemodels/models/Llama-2-7b-hf-causal"
+
+mkdir -p ${OUTPUT_DIR}
 
 python finetune.py --output_dir=${OUTPUT_DIR} \
     --run_validation \
-    --model_name "/home/gridsan/JO30252/languagemodels/models/Llama-2-7b-hf-causal" \
+    --model_name ${MODEL_PATH} \
+    --use_peft \
+    --peft_method lora \
     --quantization \
+    --num_epochs 1 \
+    --max_training_data 0 \
+    --max_validation_data 64 \
     --batch_size_training 16 \
     --val_batch_size 16 \
     --num_workers_dataloader 10 \
