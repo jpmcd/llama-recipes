@@ -56,7 +56,8 @@ def main(**kwargs):
     # kwargs["quantization"] = True
     
     update_config((train_config, fsdp_config), **kwargs)
-    
+    with open(os.path.join(train_config.output_dir, "args.json"), "w") as f:
+        json.dump(kwargs, f)
     # Set the seeds for reproducibility
     torch.cuda.manual_seed(train_config.seed)
     torch.manual_seed(train_config.seed)
