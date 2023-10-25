@@ -108,6 +108,7 @@ def main(**kwargs):
     train_dataloader = torch.utils.data.DataLoader(
         dataset_train,
         batch_size=train_config.batch_size_training,
+        shuffle=train_config.shuffle and train_sampler is None,
         num_workers=train_config.num_workers_dataloader,
         pin_memory=True,
         sampler=train_sampler if train_sampler else None,
@@ -148,7 +149,7 @@ def main(**kwargs):
         )
         if not train_config.enable_fsdp or rank==0:
             [print(f'Key: {k}, Value: {v}') for k, v in results.items()]
-    if True:
+    if False:
         print("Running evaluation...")
         evaluation(
             model,
