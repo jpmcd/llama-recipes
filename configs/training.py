@@ -14,6 +14,7 @@ class train_config:
     gradient_accumulation_steps: int=1
     num_epochs: int=3
     num_workers_dataloader: int=1
+    shuffle: bool=False
     lr: float=1e-4
     weight_decay: float=0.0
     gamma: float= 0.85
