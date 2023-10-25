@@ -7,6 +7,7 @@ import fire
 import torch
 import torch.distributed as dist
 from peft import get_peft_model, prepare_model_for_int8_training
+from peft import PeftModel
 from torch.distributed.fsdp import (
     FullyShardedDataParallel as FSDP,
 )
@@ -76,6 +77,9 @@ def main(**kwargs):
     print_model_size(model, train_config, rank if train_config.enable_fsdp else 0)
     if train_config.quantization:
             model = prepare_model_for_int8_training(model)
+    if train_config.peft_model:
+        model = PeftModel.from_pretrained(model, train_config.peft_model)
+        model.print_trainable_parameters()
     if not train_config.quantization and not train_config.enable_fsdp:
         model.to("cuda")
 
@@ -91,11 +95,11 @@ def main(**kwargs):
     with open(kwargs["form"], "r") as f:
         form = f.read()
     with open(kwargs["data_path"], "r") as f:
-        dataset = json.load(f)
-    dataset_gen = CustomGenerationDataset(dataset, form, tokenizer, max_length=kwargs["max_length"])
+        json_data = json.load(f)
+    dataset = CustomGenerationDataset(json_data, form, tokenizer, max_length=kwargs["max_length"])
     
     dataloader = torch.utils.data.DataLoader(
-        dataset_gen,
+        dataset,
         batch_size=train_config.val_batch_size,
         num_workers=train_config.num_workers_dataloader,
         pin_memory=True,
@@ -141,15 +145,3 @@ def main(**kwargs):
             
 if __name__ == "__main__":
     fire.Fire(main)
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument("--model_path", type=str, default=DEFAULT_MODEL)
-    # parser.add_argument("--form", type=str)
-    # parser.add_argument("--data_path", type=str)
-    # parser.add_argument("--output", type=str)
-    # parser.add_argument("--quantization", action="store_true")
-    # parser.add_argument("--batch_size_validation", type=int, default=16)
-    # parser.add_argument("--max_length", type=int, default=128)
-    # parser.add_argument("--num_workers_dataloader", type=int, default=10)
-    # parser.add_argument("--skip_special_tokens", action="store_true")
-    # args = parser.parse_args()
-    # main(args)
