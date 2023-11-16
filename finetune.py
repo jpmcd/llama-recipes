@@ -93,7 +93,7 @@ def main(**kwargs):
         model.to("cuda")
     
     tokenizer = LlamaTokenizer.from_pretrained(f"{HOME}/languagemodels/models/Llama-2-7b-hf-causal")  # , model_max_length=512)
-    tokenizer.pad_token = "<PAD>"
+    tokenizer.pad_token = "<PAD>"  # without adding with tok.add_special_tokens(), pad_id = unk_id = 0
     
     # Set dataset and sampling
     squad = datasets.load_from_disk(f"{HOME}/languagemodels/datasets/squad")
