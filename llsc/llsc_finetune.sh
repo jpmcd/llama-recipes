@@ -23,9 +23,11 @@ python finetune.py --output_dir=${OUTPUT_DIR} \
     --peft_method lora \
     --quantization \
     --num_epochs 1 \
-    --max_training_data 0 \
-    --max_validation_data 64 \
+    --shuffle \
+    --max_training_data 2000 \
+    --max_validation_data 400 \
+    --keep_last \
     --batch_size_training 16 \
-    --val_batch_size 16 \
+    --val_batch_size 8 \
     --num_workers_dataloader 10 \
     --lr 1e-5

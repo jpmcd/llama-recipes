@@ -155,7 +155,7 @@ class SquadCausalDataset(Dataset):
 
 
 class SquadGenerationDataset(Dataset):
-    def __init__(self, data, tokenizer, max_length=512):
+    def __init__(self, data, tokenizer, max_length=None):
         self.tokenizer = tokenizer
         self.data = data
         self.max_length = max_length
@@ -170,7 +170,7 @@ class SquadGenerationDataset(Dataset):
         prompt = torch.tensor(
             self.tokenizer.encode(prompt), dtype=torch.int64
         )
-        example = self.tokenizer.encode(example, padding="max_length")
+        example = self.tokenizer.encode(example, padding="max_length", max_length=self.max_length)
         example = torch.tensor(
             example, dtype=torch.int64
         )
@@ -183,7 +183,7 @@ class SquadGenerationDataset(Dataset):
 
 
 class CustomGenerationDataset(Dataset):
-    def __init__(self, data, form, tokenizer, max_length=512):
+    def __init__(self, data, form, tokenizer, max_length=None):
         self.tokenizer = tokenizer
         self.data = data
         self.max_length = max_length
@@ -195,12 +195,32 @@ class CustomGenerationDataset(Dataset):
     def __getitem__(self, index):
         data = self.data[index]
         example = self.form.format_map(data)
-        example = self.tokenizer.encode(example, padding="max_length")
+        example = self.tokenizer.encode(example, padding="max_length", max_length=self.max_length)
         example = torch.tensor(
             example, dtype=torch.int64
         )
         example_mask = example.ge(1)
         example_mask = example_mask.float()
+        return {
+            "input_ids": example,
+            "attention_mask": example_mask,
+        }
+
+
+class CustomCausalDataset(Dataset):
+    def __init__(self, data, tokenizer, max_length=None):
+        self.tokenizer = tokenizer
+        self.data = data
+        self.max_length = max_length
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, index):
+        example = self.data[index]
+        example = self.tokenizer.encode(example, padding="max_length", max_length=self.max_length, return_tensors="pt")
+        example_mask = example.ge(1)
+        # example_mask = example_mask.float()
         return {
             "input_ids": example,
             "attention_mask": example_mask,

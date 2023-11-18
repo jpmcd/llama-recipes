@@ -21,8 +21,8 @@ python generate.py \
     --form ${FORM} \
     --data_path ${DATA_PATH} \
     --quantization \
-    --batch_size_validation 16 \
+    --batch_size_validation 8 \
     --num_workers_dataloader 10 \
-    --max_length 128 \
+    --max_length 512 \
     --skip_special_tokens
-# --max_length 512 \
+    # --peft_model "${HOME}/repos/llama-recipes/output/24094434_20231025_105250" \
