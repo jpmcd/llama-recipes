@@ -148,7 +148,6 @@ def train(model, train_dataloader, eval_dataloader, tokenizer, optimizer, lr_sch
         if train_config.run_validation:
             eval_ppl, eval_epoch_loss = evaluation(model, train_config, eval_dataloader, local_rank, tokenizer)
             checkpoint_start_time = time.perf_counter()
-            # if train_config.save_model:
             if train_config.save_model and eval_epoch_loss < best_val_loss:
                 if train_config.enable_fsdp:
                     dist.barrier()
@@ -206,8 +205,11 @@ def train(model, train_dataloader, eval_dataloader, tokenizer, optimizer, lr_sch
                 print(f"Epoch {epoch}: train_perplexity={train_perplexity:.4f}, train_epoch_loss={train_epoch_loss:.4f}, epoch time {epoch_end_time}s")
         else:
             print(f"Epoch {epoch}: train_perplexity={train_perplexity:.4f}, train_epoch_loss={train_epoch_loss:.4f}, epoch time {epoch_end_time}s")
+    if train_config.save_model:
+        if train_config.use_peft:
+            model.save_pretrained(os.path.join(train_config.output_dir, "final"))
     avg_epoch_time = sum(epoch_times)/ len(epoch_times) 
-    avg_checkpoint_time = sum(checkpoint_times)/ len(checkpoint_times)   
+    avg_checkpoint_time = sum(checkpoint_times)/ max(len(checkpoint_times), 1)   
     avg_train_prep = sum(train_prep)/len(train_prep)
     avg_train_loss = sum(train_loss)/len(train_loss)
     if train_config.run_validation:
@@ -244,10 +246,10 @@ def evaluation(model, train_config, eval_dataloader, local_rank, tokenizer, retu
         world_size = int(os.environ["WORLD_SIZE"]) 
     model.eval()
     eval_preds = []
-    eval_loss = 0.0  # Initialize evaluation loss
+    eval_loss = torch.Tensor(0.0)  # Initialize evaluation loss
+    nan_batches = 0
     eval_start_time = time.perf_counter()
     with MemoryTrace() as memtrace:
-        nan_batches = 0
         for step, batch in enumerate(tqdm(eval_dataloader,colour="green", desc="evaluating Epoch")):
             for key in batch.keys():
                 if train_config.enable_fsdp:
@@ -277,7 +279,7 @@ def evaluation(model, train_config, eval_dataloader, local_rank, tokenizer, retu
         dist.all_reduce(eval_loss, op=dist.ReduceOp.SUM)
     
     # Compute average loss and perplexity
-    eval_epoch_loss = eval_loss / (len(eval_dataloader) - nan_batches)
+    eval_epoch_loss = eval_loss / max(len(eval_dataloader) - nan_batches, 1)
     if train_config.enable_fsdp:
         eval_epoch_loss = eval_epoch_loss/world_size
     eval_ppl = torch.exp(eval_epoch_loss)
