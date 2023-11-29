@@ -10,7 +10,7 @@ class train_config:
     peft_model: str=""
     enable_fsdp: bool=False
     low_cpu_fsdp: bool=False
-    run_validation: bool=True
+    run_validation: bool=False
     batch_size_training: int=4
     gradient_accumulation_steps: int=1
     num_epochs: int=3
