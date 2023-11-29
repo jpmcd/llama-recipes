@@ -1,6 +1,7 @@
 import json
 import os
 import time
+import pickle
 from tqdm import tqdm
 import datasets
 import argparse
@@ -44,6 +45,7 @@ from utils.train_utils import (
     get_policies
 )
 from data import PROMPT_DICT, SuperCloudDemoDataset, SuperCloudThreadsDataset
+from data import CustomCausalDataset
 from data import SquadCausalDataset
 
 
@@ -51,10 +53,9 @@ HOME = os.environ["HOME"]
 
 
 def main(**kwargs):
-    # kwargs["run_validation"] = True
     # kwargs["model_name"] = f"{HOME}/languagemodels/models/Llama-2-7b-hf-causal"
-    # kwargs["quantization"] = True
     
+    kwargs["val_batch_size"] = kwargs["val_batch_size"] if "val_batch_size" in kwargs else kwargs.get("batch_size_validation", 16)
     update_config((train_config, fsdp_config), **kwargs)
     with open(os.path.join(train_config.output_dir, "args.json"), "w") as f:
         json.dump(kwargs, f)
@@ -96,13 +97,29 @@ def main(**kwargs):
     tokenizer.pad_token = "<PAD>"  # without adding with tok.add_special_tokens(), pad_id = unk_id = 0
     
     # Set dataset and sampling
-    squad = datasets.load_from_disk(f"{HOME}/languagemodels/datasets/squad")
-    max_training_data = kwargs.get("max_training_data", len(squad["train"]))
-    max_validation_data = kwargs.get("max_validation_data", len(squad["validation"]))
-    # if max_training_data is not None:
-    dataset_train = SquadCausalDataset(squad["train"].select(range(max_training_data)), tokenizer)
-    # if max_validation_data is not None:
-    dataset_val = SquadCausalDataset(squad["validation"].select(range(max_validation_data)), tokenizer)
+    with open(kwargs["form"], "r") as f:
+        form = f.read()
+    if "context" in kwargs:
+        with open(kwargs["context"], "r") as f:
+            context_form = f.read()
+    else:
+        context_form = ""
+    ext = os.path.splitext(kwargs["data_path"])[1]
+    if ext == ".json":
+        with open(kwargs["data_path"], "r") as f:
+            data = json.load(f)
+    elif ext == ".pkl":
+        with open(kwargs["data_path"], "rb") as f:
+            data = pickle.load(f)
+    max_training_data = kwargs.get("max_training_data", len(data["train"]))
+    data["train"] = data["train"][:max_training_data]
+    dataset_train = CustomCausalDataset(data["train"], form, context_form, tokenizer, max_length=kwargs["max_length"])
+    dataset_val = []
+    # squad = datasets.load_from_disk(f"{HOME}/languagemodels/datasets/squad")
+    # max_training_data = kwargs.get("max_training_data", len(squad["train"]))
+    # max_validation_data = kwargs.get("max_validation_data", len(squad["validation"]))
+    # dataset_train = SquadCausalDataset(squad["train"].select(range(max_training_data)), tokenizer)
+    # dataset_val = SquadCausalDataset(squad["validation"].select(range(max_validation_data)), tokenizer)
     train_sampler = None
     val_sampler = None
     train_dataloader = torch.utils.data.DataLoader(
@@ -125,6 +142,8 @@ def main(**kwargs):
             drop_last=not kwargs.get("keep_last"),
             collate_fn=default_data_collator,
         )
+    else:
+        eval_dataloader = []
     # Set optimizer, scheduler
     optimizer = optim.AdamW(
         model.parameters(),
@@ -149,7 +168,7 @@ def main(**kwargs):
         )
         if not train_config.enable_fsdp or rank==0:
             [print(f'Key: {k}, Value: {v}') for k, v in results.items()]
-    if False:
+    if train_config.run_validation:
         print("Running evaluation...")
         evaluation(
             model,
