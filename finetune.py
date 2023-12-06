@@ -13,6 +13,7 @@ from pkg_resources import packaging
 from torch.distributed.fsdp import (
     FullyShardedDataParallel as FSDP,
 )
+from torch.distributed.fsdp.fully_sharded_data_parallel import CPUOffload
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DistributedSampler
 from transformers import (
@@ -65,9 +66,14 @@ def main(**kwargs):
     if train_config.enable_fsdp:
         setup()
         # torchrun specific
-        local_rank = int(os.environ["LOCAL_RANK"])
-        rank = int(os.environ["RANK"])
-        world_size = int(os.environ["WORLD_SIZE"])
+        if os.getenv('OMPI_COMM_WORLD_SIZE') is not None:
+            rank = int(os.getenv('OMPI_COMM_WORLD_RANK'))
+            local_rank = int(os.getenv('OMPI_COMM_WORLD_LOCAL_RANK'))
+            world_size = int(os.getenv('OMPI_COMM_WORLD_SIZE'))
+        else:
+            local_rank = int(os.environ["LOCAL_RANK"])
+            rank = int(os.environ["RANK"])
+            world_size = int(os.environ["WORLD_SIZE"])
 
     if torch.distributed.is_initialized():
         torch.cuda.set_device(local_rank)
@@ -75,25 +81,85 @@ def main(**kwargs):
         setup_environ_flags(rank)
 
     # Load the pre-trained model and setup its configuration
-    model = LlamaForCausalLM.from_pretrained(
-        train_config.model_name,
-        load_in_8bit=True if train_config.quantization else None,
-        device_map="auto" if train_config.quantization else None,
-    )
+    use_cache = False if train_config.enable_fsdp else None
+    if train_config.enable_fsdp and train_config.low_cpu_fsdp:
+        """
+        for FSDP, we can save cpu memory by loading pretrained model on rank0 only.
+        this avoids cpu oom when loading large models like llama 70B, in which case
+        model alone would consume 2+TB cpu mem (70 * 4 * 8). This will add some comms
+        overhead and currently requires latest nightly.
+        """
+        v = packaging.version.parse(torch.__version__)
+        verify_latest_nightly = v.is_devrelease and v.dev >= 20230701
+        if not verify_latest_nightly:
+            raise Exception("latest pytorch nightly build is required to run with low_cpu_fsdp config, "
+                            "please install latest nightly.")
+        if rank == 0:
+            model = LlamaForCausalLM.from_pretrained(
+                train_config.model_name,
+                load_in_8bit=True if train_config.quantization else None,
+                device_map="auto" if train_config.quantization else None,
+                use_cache=use_cache,
+            )
+        else:
+            llama_config = LlamaConfig.from_pretrained(train_config.model_name)
+            llama_config.use_cache = use_cache
+            with torch.device("meta"):
+                model = LlamaForCausalLM(llama_config)
+    else:
+        model = LlamaForCausalLM.from_pretrained(
+            train_config.model_name,
+            load_in_8bit=True if train_config.quantization else None,
+            device_map="auto" if train_config.quantization else None,
+            use_cache=use_cache,
+        )
+    if train_config.enable_fsdp and train_config.use_fast_kernels:
+        """
+        For FSDP and FSDP+PEFT, setting 'use_fast_kernels' will enable
+        using of Flash Attention or Xformer memory-efficient kernels
+        based on the hardware being used. This would speed up fine-tuning.
+        """
+        try:
+            from optimum.bettertransformer import BetterTransformer
+            model = BetterTransformer.transform(model)
+        except ImportError:
+            print("Module 'optimum' not found. Please install 'optimum' it before proceeding.")
     print_model_size(model, train_config, rank if train_config.enable_fsdp else 0)
+    # Prepare the model for int8 training if quantization is enabled
     if train_config.quantization:
         model = prepare_model_for_int8_training(model)
+    # Convert the model to bfloat16 if fsdp and pure_bf16 is enabled
+    if train_config.enable_fsdp and fsdp_config.pure_bf16:
+        model.to(torch.bfloat16)
     if train_config.use_peft:
         peft_config = generate_peft_config(train_config, kwargs)
         model = get_peft_model(model, peft_config)
         model.print_trainable_parameters()
     if train_config.enable_fsdp:
-        raise 
-    elif not train_config.quantization:
+        if not train_config.use_peft and train_config.freeze_layers:
+            freeze_transformer_layers(train_config.num_freeze_layers)
+        mixed_precision_policy, wrapping_policy = get_policies(fsdp_config, rank)
+        my_auto_wrapping_policy = fsdp_auto_wrap_policy(model, LlamaDecoderLayer)
+        model = FSDP(
+            model,
+            auto_wrap_policy=my_auto_wrapping_policy if train_config.use_peft else wrapping_policy,
+            cpu_offload=CPUOffload(offload_params=True) if fsdp_config.fsdp_cpu_offload else None,
+            mixed_precision=mixed_precision_policy if not fsdp_config.pure_bf16 else None,
+            sharding_strategy=fsdp_config.sharding_strategy,
+            device_id=torch.cuda.current_device(),
+            limit_all_gathers=True,
+            sync_module_states=train_config.low_cpu_fsdp,
+            param_init_fn=lambda module: module.to_empty(device=torch.device("cuda"), recurse=False)
+            if train_config.low_cpu_fsdp and rank != 0 else None,
+        )
+        if fsdp_config.fsdp_activation_checkpointing:
+            apply_fsdp_checkpointing(model)
+    elif not train_config.quantization and not train_config.enable_fsdp:
         model.to("cuda")
     
     tokenizer = LlamaTokenizer.from_pretrained(f"{HOME}/languagemodels/models/Llama-2-7b-hf-causal")  # , model_max_length=512)
     tokenizer.pad_token = "<PAD>"  # without adding with tok.add_special_tokens(), pad_id = unk_id = 0
+    # tokenizer.pad_token_id = tokenizer.eos_token_id
     
     # Set dataset and sampling
     with open(kwargs["form"], "r") as f:
@@ -121,6 +187,20 @@ def main(**kwargs):
     # dataset_val = SquadCausalDataset(squad["validation"].select(range(max_validation_data)), tokenizer)
     train_sampler = None
     val_sampler = None
+    if train_config.enable_fsdp:
+        train_sampler = DistributedSampler(
+            dataset_train,
+            rank=torch.distributed.get_rank(),
+            num_replicas=torch.distributed.get_world_size(),
+            shuffle=True,
+        )
+        if train_config.run_validation:
+            val_sampler = DistributedSampler(
+                dataset_val,
+                rank=torch.distributed.get_rank(),
+                num_replicas=torch.distributed.get_world_size(),
+            )
+    # Create DataLoaders for the training and validation dataset
     train_dataloader = torch.utils.data.DataLoader(
         dataset_train,
         batch_size=train_config.batch_size_training,
