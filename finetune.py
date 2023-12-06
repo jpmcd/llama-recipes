@@ -4,7 +4,6 @@ import time
 import pickle
 from tqdm import tqdm
 import datasets
-import argparse
 import fire
 import torch
 import torch.distributed as dist
@@ -83,7 +82,7 @@ def main(**kwargs):
     )
     print_model_size(model, train_config, rank if train_config.enable_fsdp else 0)
     if train_config.quantization:
-            model = prepare_model_for_int8_training(model)
+        model = prepare_model_for_int8_training(model)
     if train_config.use_peft:
         peft_config = generate_peft_config(train_config, kwargs)
         model = get_peft_model(model, peft_config)
@@ -132,6 +131,7 @@ def main(**kwargs):
         drop_last=not kwargs.get("keep_last"),
         collate_fn=default_data_collator,
     )
+    eval_dataloader = []
     if train_config.run_validation:
         eval_dataloader = torch.utils.data.DataLoader(
             dataset_val,
@@ -142,8 +142,6 @@ def main(**kwargs):
             drop_last=not kwargs.get("keep_last"),
             collate_fn=default_data_collator,
         )
-    else:
-        eval_dataloader = []
     # Set optimizer, scheduler
     optimizer = optim.AdamW(
         model.parameters(),
@@ -182,15 +180,3 @@ def main(**kwargs):
     
 if __name__ == "__main__":
     fire.Fire(main)
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument("--model_path", type=str, default=DEFAULT_MODEL)
-    # parser.add_argument("--form", type=str)
-    # parser.add_argument("--data_path", type=str)
-    # parser.add_argument("--output", type=str)
-    # parser.add_argument("--quantization", action="store_true")
-    # parser.add_argument("--batch_size_validation", type=int, default=16)
-    # parser.add_argument("--max_length", type=int, default=128)
-    # parser.add_argument("--num_workers_dataloader", type=int, default=10)
-    # parser.add_argument("--skip_special_tokens", action="store_true")
-    # args = parser.parse_args()
-    # main(args)
